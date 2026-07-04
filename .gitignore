@@ -1,0 +1,23 @@
+# Build folders
+bin/
+obj/
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio files
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Gemini / Agent files
+.gemini/
+antigravity-ide/
+antigravity-ide.log
+
+# App Runtime Data
+fences_config.json
+桌面备份/
+*.log
+crash_log.txt
