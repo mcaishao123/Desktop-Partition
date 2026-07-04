@@ -56,6 +56,10 @@ namespace 桌面整理工具
         private bool _enableBlur = true;
         private bool _isEditMode = false;
 
+        // 镜像模式标志（镜像窗口不操控物理文件，只做视觉展示与双击打开）
+        private readonly bool _isMirror = false;
+        private readonly FenceWindow? _primaryWindow = null;
+
         public FenceWindow(FenceConfig config, bool enableBlur, bool isEditMode)
         {
             InitializeComponent();
@@ -83,6 +87,31 @@ namespace 桌面整理工具
             FileListBox.ItemsSource = Items;
         }
 
+        /// <summary>
+        /// 镜像构造函数：在副屏上创建一个只读视觉镜像，绑定主窗口的 Items 数据源
+        /// </summary>
+        public FenceWindow(FenceWindow primaryWindow, double mirrorLeft, double mirrorTop, bool enableBlur, bool isEditMode)
+        {
+            InitializeComponent();
+            _isMirror = true;
+            _primaryWindow = primaryWindow;
+            _config = primaryWindow._config;
+            _enableBlur = enableBlur;
+            _isEditMode = isEditMode;
+
+            _partitionFolder = primaryWindow._partitionFolder;
+
+            this.Left = mirrorLeft;
+            this.Top = mirrorTop;
+            this.TitleText.Text = _config.Title;
+
+            // 镜像窗口直接绑定主窗口的 Items 集合，实时同步显示
+            FileListBox.ItemsSource = primaryWindow.Items;
+
+            // 镜像窗口禁止外部文件拖入
+            this.AllowDrop = false;
+        }
+
         protected override void OnSourceInitialized(EventArgs e)
         {
             base.OnSourceInitialized(e);
@@ -97,9 +126,12 @@ namespace 桌面整理工具
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
-            // 3. 扫描物理目录并加载文件
-            LoadFiles();
-
+            // 镜像窗口跳过物理文件加载（数据源已直接绑定主窗口的 Items 集合）
+            if (!_isMirror)
+            {
+                // 3. 扫描物理目录并加载文件
+                LoadFiles();
+            }
 
             // 5. 应用全局磨砂效果设置
             ApplyBlurEffect(_enableBlur);
@@ -134,9 +166,13 @@ namespace 桌面整理工具
             {
                 this.Left = targetLeft;
                 this.Top = targetTop;
-                _config.X = this.Left;
-                _config.Y = this.Top;
-                TriggerConfigChanged();
+                // 镜像窗口不写回主配置坐标
+                if (!_isMirror)
+                {
+                    _config.X = this.Left;
+                    _config.Y = this.Top;
+                    TriggerConfigChanged();
+                }
             }
 
             // 7. DPI 物理像素重定位刷新并贴合最底层
@@ -198,6 +234,9 @@ namespace 桌面整理工具
 
         private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
         {
+            // 镜像窗口不写回配置尺寸
+            if (_isMirror) return;
+
             // 当窗口由于图标增减在 WPF 底层自动缩放尺寸时，实时记录最新大小并同步保存
             if (_config != null && this.ActualWidth > 0 && this.ActualHeight > 0)
             {
@@ -332,7 +371,7 @@ namespace 桌面整理工具
 
         private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (_isLocked) return;
+            if (_isLocked || _isMirror) return;
 
             _isDragging = true;
             _dragStartPoint = e.GetPosition(this);
@@ -1023,6 +1062,9 @@ namespace 桌面整理工具
         /// </summary>
         public void RestoreAllItemsToDesktopBeforeExit()
         {
+            // 镜像窗口不参与退出还原（物理文件由主窗口统一管理）
+            if (_isMirror) return;
+
             try
             {
                 string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);

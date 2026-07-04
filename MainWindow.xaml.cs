@@ -50,20 +50,6 @@ namespace 桌面整理工具
 
             // 3. 注册进程退出监听，确保温和关机、任务管理器结束任务等场景下完璧归赵移回桌面
             AppDomain.CurrentDomain.ProcessExit += (s, e) => ExitApp();
-
-            // 4. 初始化多虚拟桌面跟随定时器 (500毫秒轮询一次，极其低耗，DWM 级别跟随)
-            var dispatcherTimer = new System.Windows.Threading.DispatcherTimer();
-            dispatcherTimer.Tick += (s, e) => {
-                foreach (var win in _activeWindows)
-                {
-                    if (win.IsLoaded && win.Visibility == Visibility.Visible)
-                    {
-                        Win32Helper.SyncWindowToCurrentVirtualDesktop(win);
-                    }
-                }
-            };
-            dispatcherTimer.Interval = TimeSpan.FromMilliseconds(500);
-            dispatcherTimer.Start();
         }
 
         private void InitTray()
@@ -108,7 +94,7 @@ namespace 桌面整理工具
                 SaveGlobalSettings();
                 
                 // 动态通知所有分区卡片切换磨砂模糊状态
-                foreach (var win in _activeWindows)
+                foreach (var win in _activeWindows.Concat(_mirrorWindows))
                 {
                     win.ApplyBlurEffect(_enableBlur);
                 }
@@ -124,7 +110,7 @@ namespace 桌面整理工具
                 SaveGlobalSettings();
                 
                 // 动态通知所有分区卡片切换编辑模式（控制重命名与删除按钮的显隐）
-                foreach (var win in _activeWindows)
+                foreach (var win in _activeWindows.Concat(_mirrorWindows))
                 {
                     win.SetEditMode(_isEditMode);
                 }
@@ -176,9 +162,12 @@ namespace 桌面整理工具
             }
         }
 
+        // 镜像窗口独立列表（不参与配置保存、不参与退出还原等逻辑）
+        private readonly List<FenceWindow> _mirrorWindows = new List<FenceWindow>();
+
         private void CreateAndShowFence(FenceConfig config)
         {
-            // 实例化分区窗口，将全局磨砂开关与编辑模式状态作为参数传入
+            // 实例化主窗口（物理文件操控窗口），将全局磨砂开关与编辑模式状态作为参数传入
             var win = new FenceWindow(config, _enableBlur, _isEditMode)
             {
                 IsLocked = _isLocked
@@ -187,6 +176,8 @@ namespace 桌面整理工具
             win.ConfigChanged += (s, e) => SaveAllConfigs();
             win.DeleteRequested += (s, e) =>
             {
+                // 删除分区时，同步销毁所有镜像窗口
+                DestroyMirrorsForPrimary(win);
                 win.Close();
                 _activeWindows.Remove(win);
                 SaveAllConfigs();
@@ -194,6 +185,67 @@ namespace 桌面整理工具
 
             _activeWindows.Add(win);
             win.Show();
+
+            // 在所有其他物理显示器上创建镜像窗口
+            CreateMirrorsForPrimary(win);
+        }
+
+        /// <summary>
+        /// 遍历所有物理显示器，为主窗口在每个「非主窗口所在的」显示器上各创建一个只读镜像窗口
+        /// </summary>
+        private void CreateMirrorsForPrimary(FenceWindow primaryWin)
+        {
+            var allScreens = Forms.Screen.AllScreens;
+            if (allScreens.Length <= 1) return;  // 单显示器无需镜像
+
+            // 获取主窗口的 DPI 缩放
+            double dpiScaleX = 1.0;
+            double dpiScaleY = 1.0;
+            var source = PresentationSource.FromVisual(primaryWin);
+            if (source?.CompositionTarget != null)
+            {
+                dpiScaleX = source.CompositionTarget.TransformToDevice.M11;
+                dpiScaleY = source.CompositionTarget.TransformToDevice.M22;
+            }
+
+            // 确定主窗口物理所在的显示器
+            int pixelX = (int)(primaryWin.Left * dpiScaleX);
+            int pixelY = (int)(primaryWin.Top * dpiScaleY);
+            var primaryScreen = Forms.Screen.FromPoint(new System.Drawing.Point(pixelX, pixelY));
+
+            // 计算主窗口在其所在显示器工作区中的相对比例位置
+            double relX = (primaryWin.Left * dpiScaleX - primaryScreen.WorkingArea.X) / primaryScreen.WorkingArea.Width;
+            double relY = (primaryWin.Top * dpiScaleY - primaryScreen.WorkingArea.Y) / primaryScreen.WorkingArea.Height;
+
+            foreach (var screen in allScreens)
+            {
+                if (screen.DeviceName == primaryScreen.DeviceName) continue;
+
+                // 按比例映射到目标显示器的相同相对位置
+                double mirrorLeft = (screen.WorkingArea.X + relX * screen.WorkingArea.Width) / dpiScaleX;
+                double mirrorTop = (screen.WorkingArea.Y + relY * screen.WorkingArea.Height) / dpiScaleY;
+
+                var mirror = new FenceWindow(primaryWin, mirrorLeft, mirrorTop, _enableBlur, _isEditMode)
+                {
+                    IsLocked = true  // 镜像窗口始终锁定
+                };
+
+                _mirrorWindows.Add(mirror);
+                mirror.Show();
+            }
+        }
+
+        /// <summary>
+        /// 销毁属于指定主窗口的所有镜像窗口
+        /// </summary>
+        private void DestroyMirrorsForPrimary(FenceWindow primaryWin)
+        {
+            var toRemove = _mirrorWindows.FindAll(m => m.Config.Id == primaryWin.Config.Id);
+            foreach (var m in toRemove)
+            {
+                try { m.Close(); } catch { }
+                _mirrorWindows.Remove(m);
+            }
         }
 
         private void AddNewFence()
@@ -219,6 +271,7 @@ namespace 桌面整理工具
 
         private void SaveAllConfigs()
         {
+            // 只保存主窗口的配置，镜像窗口不参与配置存储
             var configs = _activeWindows.Select(w => w.Config).ToList();
             FenceConfigManager.SaveConfigs(configs);
         }
@@ -226,7 +279,10 @@ namespace 桌面整理工具
         private void ToggleAllFences()
         {
             _allHidden = !_allHidden;
-            foreach (var win in _activeWindows)
+
+            // 同步切换主窗口和镜像窗口的显隐状态
+            var allWindows = _activeWindows.Concat(_mirrorWindows);
+            foreach (var win in allWindows)
             {
                 if (_allHidden)
                 {
@@ -251,7 +307,14 @@ namespace 桌面整理工具
                 _notifyIcon.Dispose();
             }
 
-            // 退出前，遍历所有分区，强制将物理图标无缝安全移回系统桌面
+            // 先关闭所有镜像窗口（它们不操控物理文件）
+            foreach (var m in _mirrorWindows)
+            {
+                try { m.Close(); } catch { }
+            }
+            _mirrorWindows.Clear();
+
+            // 退出前，遍历所有主窗口分区，强制将物理图标无缝安全移回系统桌面
             foreach (var win in _activeWindows)
             {
                 try
