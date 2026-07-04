@@ -371,7 +371,7 @@ namespace 桌面整理工具
 
         private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (_isLocked || _isMirror) return;
+            if (_isLocked) return;
 
             _isDragging = true;
             _dragStartPoint = e.GetPosition(this);
@@ -558,8 +558,12 @@ namespace 桌面整理工具
                 this.Left = finalLeft;
                 this.Top = finalTop;
 
-                _config.X = this.Left;
-                _config.Y = this.Top;
+                // 镜像窗口不写回主配置坐标
+                if (!_isMirror)
+                {
+                    _config.X = this.Left;
+                    _config.Y = this.Top;
+                }
             }
         }
 
@@ -595,11 +599,17 @@ namespace 桌面整理工具
                     // 发生了意外的重叠穿透，自动回弹退回移动前出发点，确保绝对 100% 零重叠！
                     this.Left = _startLeft;
                     this.Top = _startTop;
-                    _config.X = _startLeft;
-                    _config.Y = _startTop;
+                    if (!_isMirror)
+                    {
+                        _config.X = _startLeft;
+                        _config.Y = _startTop;
+                    }
                 }
 
-                TriggerConfigChanged();
+                if (!_isMirror)
+                {
+                    TriggerConfigChanged();
+                }
             }
         }
         #endregion

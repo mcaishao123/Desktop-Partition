@@ -78,7 +78,7 @@ namespace 桌面整理工具
             {
                 _isLocked = !_isLocked;
                 lockBtn.Checked = _isLocked;
-                foreach (var win in _activeWindows)
+                foreach (var win in _activeWindows.Concat(_mirrorWindows))
                 {
                     win.IsLocked = _isLocked;
                 }
@@ -227,7 +227,7 @@ namespace 桌面整理工具
 
                 var mirror = new FenceWindow(primaryWin, mirrorLeft, mirrorTop, _enableBlur, _isEditMode)
                 {
-                    IsLocked = true  // 镜像窗口始终锁定
+                    IsLocked = _isLocked  // 跟随全局锁定状态
                 };
 
                 _mirrorWindows.Add(mirror);
