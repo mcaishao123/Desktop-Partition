@@ -50,6 +50,20 @@ namespace 桌面整理工具
 
             // 3. 注册进程退出监听，确保温和关机、任务管理器结束任务等场景下完璧归赵移回桌面
             AppDomain.CurrentDomain.ProcessExit += (s, e) => ExitApp();
+
+            // 4. 初始化多虚拟桌面跟随定时器 (500毫秒轮询一次，极其低耗，DWM 级别跟随)
+            var dispatcherTimer = new System.Windows.Threading.DispatcherTimer();
+            dispatcherTimer.Tick += (s, e) => {
+                foreach (var win in _activeWindows)
+                {
+                    if (win.IsLoaded && win.Visibility == Visibility.Visible)
+                    {
+                        Win32Helper.SyncWindowToCurrentVirtualDesktop(win);
+                    }
+                }
+            };
+            dispatcherTimer.Interval = TimeSpan.FromMilliseconds(500);
+            dispatcherTimer.Start();
         }
 
         private void InitTray()
