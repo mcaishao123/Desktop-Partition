@@ -54,6 +54,9 @@ namespace 桌面整理工具
             // 4. 初始化多虚拟桌面跟随定时器 (500毫秒轮询一次，极其低耗，DWM 级别跟随)
             var dispatcherTimer = new System.Windows.Threading.DispatcherTimer();
             dispatcherTimer.Tick += (s, e) => {
+                // 必须先将 Owner (MainWindow) 移动到当前虚拟桌面，否则 Owned (FenceWindow) 窗口会被系统机制强制拉回或移交失败
+                Win32Helper.SyncWindowToCurrentVirtualDesktop(this);
+
                 foreach (var win in _activeWindows)
                 {
                     if (win.IsLoaded && win.Visibility == Visibility.Visible)
