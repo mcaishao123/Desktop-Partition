@@ -288,5 +288,100 @@ namespace 桌面整理工具
             // SHCNE_ASSOCCHANGED = 0x08000000, SHCNF_IDLIST = 0x0000
             SHChangeNotify(0x08000000, 0x0000, IntPtr.Zero, IntPtr.Zero);
         }
+
+        #region 虚拟桌面多屏移动支持
+
+        [ComImport]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        [Guid("a5cd92ff-29be-454c-8bc0-4b16ee3afc5b")]
+        public interface IVirtualDesktopManager
+        {
+            int IsWindowOnCurrentVirtualDesktop(IntPtr topLevelWindow, out bool onCurrentDesktop);
+            int GetWindowDesktopId(IntPtr topLevelWindow, out Guid desktopId);
+            int MoveWindowToDesktop(IntPtr topLevelWindow, ref Guid desktopId);
+        }
+
+        private static IVirtualDesktopManager? _virtualDesktopManager;
+
+        public static void InitVirtualDesktopManager()
+        {
+            try
+            {
+                var clsid = new Guid("aa509085-ce26-4f82-0a12-78d4c9473657");
+                var type = Type.GetTypeFromCLSID(clsid);
+                if (type != null)
+                {
+                    _virtualDesktopManager = Activator.CreateInstance(type) as IVirtualDesktopManager;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"初始化虚拟桌面管理器失败: {ex.Message}");
+            }
+        }
+
+        public static Guid GetCurrentVirtualDesktopId()
+        {
+            try
+            {
+                // 路径 1 (标准 Windows 10 / 11 虚拟桌面注册表项)
+                byte[]? value = Microsoft.Win32.Registry.CurrentUser
+                    .OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\VirtualDesktops")
+                    ?.GetValue("CurrentVirtualDesktop") as byte[];
+                if (value != null && value.Length == 16)
+                {
+                    return new Guid(value);
+                }
+            }
+            catch { }
+
+            try
+            {
+                // 路径 2 (多用户 Session ID 隔离路径)
+                int sessionId = System.Diagnostics.Process.GetCurrentProcess().SessionId;
+                byte[]? value = Microsoft.Win32.Registry.CurrentUser
+                    .OpenSubKey($@"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\SessionInfo\{sessionId}\VirtualDesktops")
+                    ?.GetValue("CurrentVirtualDesktop") as byte[];
+                if (value != null && value.Length == 16)
+                {
+                    return new Guid(value);
+                }
+            }
+            catch { }
+
+            return Guid.Empty;
+        }
+
+        public static void SyncWindowToCurrentVirtualDesktop(Window window)
+        {
+            if (_virtualDesktopManager == null)
+            {
+                InitVirtualDesktopManager();
+            }
+
+            if (_virtualDesktopManager == null) return;
+
+            try
+            {
+                IntPtr hWnd = new WindowInteropHelper(window).Handle;
+                if (hWnd == IntPtr.Zero) return;
+
+                Guid currentDesktopId = GetCurrentVirtualDesktopId();
+                if (currentDesktopId != Guid.Empty)
+                {
+                    _virtualDesktopManager.IsWindowOnCurrentVirtualDesktop(hWnd, out bool onCurrent);
+                    if (!onCurrent)
+                    {
+                        _virtualDesktopManager.MoveWindowToDesktop(hWnd, ref currentDesktopId);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"同步窗口到当前虚拟桌面失败: {ex.Message}");
+            }
+        }
+
+        #endregion
     }
 }
