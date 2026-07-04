@@ -568,7 +568,7 @@ namespace 桌面整理工具
 
         private void TitleText_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (e.ClickCount == 2)
+            if (_isEditMode && e.ClickCount == 2)
             {
                 StartRename();
                 e.Handled = true;
@@ -577,7 +577,10 @@ namespace 桌面整理工具
 
         private void RenameButton_Click(object sender, RoutedEventArgs e)
         {
-            StartRename();
+            if (_isEditMode)
+            {
+                StartRename();
+            }
         }
 
         private void StartRename()
