@@ -75,9 +75,19 @@ namespace 桌面整理工具
                 Directory.CreateDirectory(_partitionFolder);
             }
 
-            // 初始化窗口位置，不强制指定宽高，以允许 SizeToContent 进行高宽双向自适应
+            // 初始化窗口位置与保存好的尺寸配置，允许自适应或固定用户拉伸的大小
             this.Left = _config.X;
             this.Top = _config.Y;
+            if (_config.Width > 0 && _config.Height > 0)
+            {
+                this.SizeToContent = SizeToContent.Manual;
+                this.Width = _config.Width;
+                this.Height = _config.Height;
+            }
+            else
+            {
+                this.SizeToContent = SizeToContent.WidthAndHeight;
+            }
             this.TitleText.Text = _config.Title;
 
             FileListBox.ItemsSource = Items;
@@ -186,6 +196,34 @@ namespace 桌面整理工具
             {
                 DeleteButton.Visibility = enable ? Visibility.Visible : Visibility.Collapsed;
             }
+
+            // 1. 动态切换 WindowChrome 的拉伸宽度 (编辑模式下为 6，非编辑模式下为 0 锁定不可拉伸)
+            try
+            {
+                var chrome = new System.Windows.Shell.WindowChrome
+                {
+                    CaptionHeight = 0,
+                    ResizeBorderThickness = enable ? new Thickness(6) : new Thickness(0),
+                    GlassFrameThickness = new Thickness(-1)
+                };
+                System.Windows.Shell.WindowChrome.SetWindowChrome(this, chrome);
+            }
+            catch { }
+
+            // 2. 如果开启编辑模式，我们将 SizeToContent 设为 Manual，使手动拉伸生效
+            if (enable)
+            {
+                // 先固化锁死当前的自适应宽度和高度，防止瞬间收缩为 0x0
+                if (this.Width.Equals(double.NaN) || this.Width == 0)
+                {
+                    this.Width = this.ActualWidth;
+                }
+                if (this.Height.Equals(double.NaN) || this.Height == 0)
+                {
+                    this.Height = this.ActualHeight;
+                }
+                this.SizeToContent = SizeToContent.Manual;
+            }
         }
 
         private void Window_Deactivated(object sender, EventArgs e)
@@ -197,12 +235,15 @@ namespace 桌面整理工具
 
         private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
         {
-            // 当窗口由于图标增减在 WPF 底层自动缩放尺寸时，实时记录最新大小并同步保存
+            // 只有在开启编辑模式且手动拉伸时，才持久化记录最新的卡片尺寸
             if (_config != null && this.ActualWidth > 0 && this.ActualHeight > 0)
             {
-                _config.Width = this.ActualWidth;
-                _config.Height = this.ActualHeight;
-                TriggerConfigChanged();
+                if (_isEditMode && this.SizeToContent == SizeToContent.Manual)
+                {
+                    _config.Width = this.ActualWidth;
+                    _config.Height = this.ActualHeight;
+                    TriggerConfigChanged();
+                }
             }
         }
 
