@@ -50,6 +50,29 @@ namespace 桌面整理工具
 
             // 3. 注册进程退出监听，确保温和关机、任务管理器结束任务等场景下完璧归赵移回桌面
             AppDomain.CurrentDomain.ProcessExit += (s, e) => ExitApp();
+
+            // 3.5. 自动检测并生成桌面快捷方式，方便用户双击直接拉起，告别命令行
+            try
+            {
+                string desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+                string shortcutPath = Path.Combine(desktop, "桌面整理工具.lnk");
+                if (!File.Exists(shortcutPath))
+                {
+                    string? exePath = Environment.ProcessPath;
+                    if (!string.IsNullOrEmpty(exePath))
+                    {
+                        string script = $"$WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('{shortcutPath}'); $Shortcut.TargetPath = '{exePath}'; $Shortcut.Save();";
+                        Process.Start(new ProcessStartInfo
+                        {
+                            FileName = "powershell",
+                            Arguments = $"-NoProfile -WindowStyle Hidden -Command \"{script}\"",
+                            CreateNoWindow = true,
+                            UseShellExecute = false
+                        });
+                    }
+                }
+            }
+            catch { }
         }
 
         private void InitTray()
