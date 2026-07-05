@@ -117,6 +117,57 @@ namespace 桌面整理工具
             };
             contextMenu.Items.Add(editBtn);
 
+            // 检测是否已经设置自启动
+            bool isAutostart = false;
+            try
+            {
+                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", false))
+                {
+                    string? val = key?.GetValue("桌面整理工具") as string;
+                    if (!string.IsNullOrEmpty(val) && val.Contains(Environment.ProcessPath ?? ""))
+                    {
+                        isAutostart = true;
+                    }
+                }
+            }
+            catch { }
+
+            // 开机自启动开关菜单项
+            var startupBtn = new Forms.ToolStripMenuItem("开机自启动") { Checked = isAutostart };
+            startupBtn.Click += (s, e) =>
+            {
+                try
+                {
+                    using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true))
+                    {
+                        if (key != null)
+                        {
+                            if (!startupBtn.Checked)
+                            {
+                                // 开启自启动
+                                string? exePath = Environment.ProcessPath;
+                                if (!string.IsNullOrEmpty(exePath))
+                                {
+                                    key.SetValue("桌面整理工具", $"\"{exePath}\"");
+                                    startupBtn.Checked = true;
+                                }
+                            }
+                            else
+                            {
+                                // 关闭自启动
+                                key.DeleteValue("桌面整理工具", false);
+                                startupBtn.Checked = false;
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"设置自启动失败: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            };
+            contextMenu.Items.Add(startupBtn);
+
             contextMenu.Items.Add(new Forms.ToolStripSeparator());
 
             var hideBtn = new Forms.ToolStripMenuItem("显示/隐藏全部分区");
