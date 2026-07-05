@@ -61,7 +61,15 @@ namespace 桌面整理工具
                     string? exePath = Environment.ProcessPath;
                     if (!string.IsNullOrEmpty(exePath))
                     {
-                        string script = $"$WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('{shortcutPath}'); $Shortcut.TargetPath = '{exePath}'; $Shortcut.Save();";
+                        // 寻找 logo.png 路径
+                        string logoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logo.png");
+                        if (!File.Exists(logoPath))
+                        {
+                            logoPath = @"C:\dev\桌面整理工具\logo.png";
+                        }
+
+                        // 将快捷方式的 IconLocation 指向该 logo.png 绝对路径，Windows 快捷方式原生完美显示该图！
+                        string script = $"$WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('{shortcutPath}'); $Shortcut.TargetPath = '{exePath}'; $Shortcut.IconLocation = '{logoPath}'; $Shortcut.Save();";
                         Process.Start(new ProcessStartInfo
                         {
                             FileName = "powershell",
@@ -83,8 +91,31 @@ namespace 桌面整理工具
                 Visible = true
             };
 
-            // 创建漂亮的动态几何 Icon 避免引入外部 ico 文件依赖
-            _notifyIcon.Icon = CreateDynamicIcon();
+            // 尝试加载本地 logo.png 设为托盘图标，若加载失败则使用动态几何 Icon 兜底
+            try
+            {
+                string logoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logo.png");
+                if (!File.Exists(logoPath))
+                {
+                    logoPath = @"C:\dev\桌面整理工具\logo.png";
+                }
+
+                if (File.Exists(logoPath))
+                {
+                    using (var bitmap = new Bitmap(logoPath))
+                    {
+                        _notifyIcon.Icon = System.Drawing.Icon.FromHandle(bitmap.GetHicon());
+                    }
+                }
+                else
+                {
+                    _notifyIcon.Icon = CreateDynamicIcon();
+                }
+            }
+            catch
+            {
+                _notifyIcon.Icon = CreateDynamicIcon();
+            }
 
             // 双击托盘显示/隐藏全部
             _notifyIcon.DoubleClick += (s, e) => ToggleAllFences();
