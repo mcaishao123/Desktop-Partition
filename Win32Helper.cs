@@ -65,6 +65,9 @@ namespace 桌面整理工具
         [DllImport("user32.dll")]
         public static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref WindowCompositionAttributeData data);
 
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool ChangeWindowMessageFilterEx(IntPtr hWnd, uint message, uint action, ref CHANGEFILTERSTRUCT pChangeFilterStruct);
+
         #endregion
 
         #region Structs
@@ -96,6 +99,13 @@ namespace 桌面整理工具
             public int Attribute;
             public IntPtr Data;
             public int SizeOfData;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct CHANGEFILTERSTRUCT
+        {
+            public uint cbSize;
+            public uint ExtStatus;
         }
 
         #endregion
@@ -142,21 +152,66 @@ namespace 桌面整理工具
         #endregion
 
         /// <summary>
-        /// 将顶级无边框窗口置于所有窗口的最底层（贴合桌面背景），并将其 Win32 Owner 设为指定窗口句柄
+        /// 将顶级无边框窗口物理钉入系统桌面底层 WorkerW 窗口，使其成为桌面壁纸的一部分
+        /// 这样可以实现原生 100% 虚拟桌面共享跟随显示，且按 Win+D 时绝不最小化
         /// </summary>
         public static void PinToDesktopBackground(Window window, IntPtr ownerHWnd)
         {
             IntPtr hWnd = new WindowInteropHelper(window).EnsureHandle();
             if (hWnd == IntPtr.Zero) return;
 
-            if (ownerHWnd != IntPtr.Zero)
+            // 1. 获取系统的桌面最底层容器句柄 (WorkerW 或 Progman)
+            IntPtr desktopHWnd = GetDesktopWindowHandle();
+            if (desktopHWnd != IntPtr.Zero)
             {
-                // 将窗口的 Win32 Owner 设为指定句柄（解决 Win+D 被最小化隐藏，且避免 OLE 拖放被 Progman 隔离拦截）
-                SetWindowLong(hWnd, -8, (int)ownerHWnd);
+                // 2. 将分区窗口设为桌面外壳的物理子窗口 (从此原生跨虚拟桌面同步显示)
+                SetParent(hWnd, desktopHWnd);
+                
+                // 3. 放行由于父级高特权造成的 OLE 拖拽特权阻断，保证 WPF FileListBox 的 AllowDrop 拖放收纳可用
+                AllowDropMessages(hWnd);
             }
 
-            // 强制将窗口置于所有普通窗口的最底层（HWND_BOTTOM = 1）
+            // 4. 强制在桌面底层保持排列 (HWND_BOTTOM = 1)
             SetWindowPos(hWnd, new IntPtr(1), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+        }
+
+        private static void AllowDropMessages(IntPtr hWnd)
+        {
+            try
+            {
+                CHANGEFILTERSTRUCT filter = new CHANGEFILTERSTRUCT();
+                filter.cbSize = (uint)Marshal.SizeOf(filter);
+                
+                // MSGFLT_ALLOW = 1. 显式放行 OLE 拖放和系统拖拽相关的消息
+                ChangeWindowMessageFilterEx(hWnd, 0x0233, 1, ref filter); // WM_DROPFILES
+                ChangeWindowMessageFilterEx(hWnd, 0x0049, 1, ref filter); // WM_COPYGLOBALDATA
+                ChangeWindowMessageFilterEx(hWnd, 0x004A, 1, ref filter); // WM_COPYDATA
+            }
+            catch { }
+        }
+
+        private static IntPtr GetDesktopWindowHandle()
+        {
+            IntPtr progman = FindWindow("Progman", null);
+            IntPtr workerW = IntPtr.Zero;
+
+            // 发送 0x052C 消息，请求 Progman 派生背景 WorkerW 渲染层 (动态壁纸所用相同技术)
+            IntPtr result;
+            SendMessageTimeout(progman, 0x052C, IntPtr.Zero, IntPtr.Zero, 0x0002, 1000, out result);
+
+            // 遍历顶级窗口，查找背后带有 SHELLDLL_DefView 的 WorkerW
+            EnumWindows((hwnd, lParam) =>
+            {
+                IntPtr defView = FindWindowEx(hwnd, IntPtr.Zero, "SHELLDLL_DefView", null);
+                if (defView != IntPtr.Zero)
+                {
+                    // 紧跟其后的下一个同级 WorkerW 即是真正负责绘制壁纸和桌面层背景容器
+                    workerW = FindWindowEx(IntPtr.Zero, hwnd, "WorkerW", null);
+                }
+                return true;
+            }, IntPtr.Zero);
+
+            return workerW != IntPtr.Zero ? workerW : progman;
         }
 
         /// <summary>
