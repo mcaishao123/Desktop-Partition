@@ -24,6 +24,7 @@ namespace 桌面整理工具
         // 全局磨砂效果控制变量
         private bool _enableBlur = true;
         private bool _isEditMode = false;
+        private Guid _lastDesktopId = Guid.Empty;
 
         public MainWindow()
         {
@@ -54,6 +55,34 @@ namespace 桌面整理工具
             // 4. 初始化多虚拟桌面跟随定时器 (500毫秒轮询一次，极其低耗，DWM 级别跟随)
             var dispatcherTimer = new System.Windows.Threading.DispatcherTimer();
             dispatcherTimer.Tick += (s, e) => {
+                Guid currentDesktopId = Win32Helper.GetCurrentVirtualDesktopId();
+                if (currentDesktopId != Guid.Empty && currentDesktopId != _lastDesktopId)
+                {
+                    // 在第一次启动或虚拟桌面发生真实切换时，对所有窗口执行 Hide-Show 重生，使其完美出现在新虚拟桌面上
+                    bool isInitial = (_lastDesktopId == Guid.Empty);
+                    _lastDesktopId = currentDesktopId;
+
+                    if (!isInitial)
+                    {
+                        foreach (var win in _activeWindows)
+                        {
+                            if (win.IsLoaded && win.Visibility == Visibility.Visible)
+                            {
+                                try
+                                {
+                                    // 重生动作：临时隐藏并再次展现以促使 DWM 重绘关联到新桌面，同时重新置底
+                                    win.Hide();
+                                    win.Show();
+                                    Win32Helper.PinToDesktopBackground(win, IntPtr.Zero);
+                                    Win32Helper.ForceShowAndBringToTop(win);
+                                }
+                                catch { }
+                            }
+                        }
+                    }
+                }
+
+                // 即使桌面没变，每次 Tick 也对所有分区执行一次跟随同步作为兜底
                 foreach (var win in _activeWindows)
                 {
                     if (win.IsLoaded && win.Visibility == Visibility.Visible)
