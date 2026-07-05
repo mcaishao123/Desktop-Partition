@@ -90,8 +90,9 @@ namespace 桌面整理工具
             // 1. 动态开启或关闭 Windows 的圆角与强制毛玻璃高斯模糊
             Win32Helper.SetBlurBehind(this, _enableBlur);
 
-            // 2. 将顶级无边框悬浮窗钉在桌面上（不再设 Owner，避免虚拟桌面平移时被系统限制拦截）
-            Win32Helper.PinToDesktopBackground(this, IntPtr.Zero);
+            // 2. 将顶级无边框悬浮窗钉在桌面上
+            IntPtr mainHWnd = new WindowInteropHelper(Application.Current.MainWindow).EnsureHandle();
+            Win32Helper.PinToDesktopBackground(this, mainHWnd);
         }
 
         private void Window_Loaded(object sender, RoutedEventArgs e)

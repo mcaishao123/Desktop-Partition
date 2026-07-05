@@ -43,8 +43,19 @@ namespace 桌面整理工具
         [DllImport("user32.dll", SetLastError = true)]
         public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
-        [DllImport("user32.dll")]
-        public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+        [DllImport("user32.dll", EntryPoint = "SetWindowLong")]
+        private static extern int SetWindowLong32(IntPtr hWnd, int nIndex, int dwNewLong);
+
+        [DllImport("user32.dll", EntryPoint = "SetWindowLongPtr")]
+        private static extern IntPtr SetWindowLongPtr64(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+        public static IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong)
+        {
+            if (IntPtr.Size == 8)
+                return SetWindowLongPtr64(hWnd, nIndex, dwNewLong);
+            else
+                return new IntPtr(SetWindowLong32(hWnd, nIndex, dwNewLong.ToInt32()));
+        }
 
         [DllImport("dwmapi.dll", PreserveSig = true)]
         public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
@@ -152,42 +163,24 @@ namespace 桌面整理工具
         #endregion
 
         /// <summary>
-        /// 将顶级无边框窗口物理钉入系统桌面底层 WorkerW 窗口，使其成为桌面壁纸的一部分
-        /// 这样可以实现原生 100% 虚拟桌面共享跟随显示，且按 Win+D 时绝不最小化
+        /// 将顶级无边框窗口的 Owner 设为桌面底层外壳窗口 (WorkerW 或 Progman)
+        /// 这样可以使其在顶级窗口状态下生存（AllowsTransparency 渲染完美），同时享有 100% 系统级原生多虚拟桌面同步展示与 Win+D 保护
         /// </summary>
         public static void PinToDesktopBackground(Window window, IntPtr ownerHWnd)
         {
             IntPtr hWnd = new WindowInteropHelper(window).EnsureHandle();
             if (hWnd == IntPtr.Zero) return;
 
-            // 1. 获取系统的桌面最底层容器句柄 (WorkerW 或 Progman)
+            // 1. 获取系统桌面背景的最底层外壳句柄
             IntPtr desktopHWnd = GetDesktopWindowHandle();
             if (desktopHWnd != IntPtr.Zero)
             {
-                // 2. 将分区窗口设为桌面外壳的物理子窗口 (从此原生跨虚拟桌面同步显示)
-                SetParent(hWnd, desktopHWnd);
-                
-                // 3. 放行由于父级高特权造成的 OLE 拖拽特权阻断，保证 WPF FileListBox 的 AllowDrop 拖放收纳可用
-                AllowDropMessages(hWnd);
+                // 2. 将卡片窗口的 Win32 Owner 指向该桌面底层窗口，从而被操作系统自动投射到所有虚拟桌面
+                SetWindowLongPtr(hWnd, -8, desktopHWnd);
             }
 
-            // 4. 强制在桌面底层保持排列 (HWND_BOTTOM = 1)
+            // 3. 强制在桌面底层保持排列 (HWND_BOTTOM = 1)
             SetWindowPos(hWnd, new IntPtr(1), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-        }
-
-        private static void AllowDropMessages(IntPtr hWnd)
-        {
-            try
-            {
-                CHANGEFILTERSTRUCT filter = new CHANGEFILTERSTRUCT();
-                filter.cbSize = (uint)Marshal.SizeOf(filter);
-                
-                // MSGFLT_ALLOW = 1. 显式放行 OLE 拖放和系统拖拽相关的消息
-                ChangeWindowMessageFilterEx(hWnd, 0x0233, 1, ref filter); // WM_DROPFILES
-                ChangeWindowMessageFilterEx(hWnd, 0x0049, 1, ref filter); // WM_COPYGLOBALDATA
-                ChangeWindowMessageFilterEx(hWnd, 0x004A, 1, ref filter); // WM_COPYDATA
-            }
-            catch { }
         }
 
         private static IntPtr GetDesktopWindowHandle()
