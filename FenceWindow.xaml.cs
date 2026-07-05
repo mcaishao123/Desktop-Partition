@@ -271,25 +271,75 @@ namespace 桌面整理工具
                 double currentWidth = this.ActualWidth;
                 double currentHeight = this.ActualHeight;
 
-                // 宽度磁吸：每列 70 像素，两端 Padding+边框微调共 20 像素
-                int cols = (int)Math.Round((currentWidth - 20) / 70.0);
-                cols = Math.Max(2, cols); // 限制宽度最窄为 2 列
+                double snapWidth = currentWidth;
+                double snapHeight = currentHeight;
+                bool xSnapped = false;
+                bool ySnapped = false;
 
-                // 高度磁吸：行高 75 像素，标题栏(32)+Padding(16)+边框与微调(4)共 52 像素
-                int rows = (int)Math.Round((currentHeight - 52) / 75.0);
-                rows = Math.Max(1, rows); // 限制高度最矮为 1 行
+                const double NeighborSnapThreshold = 18.0;
 
-                double targetWidth = cols * 70 + 20;
-                double targetHeight = rows * 75 + 52;
+                double targetRight = this.Left + currentWidth;
+                double targetBottom = this.Top + currentHeight;
 
-                // 磁吸重置，消除任何残缺空白
-                this.Width = targetWidth;
-                this.Height = targetHeight;
+                // 1. 尝试磁吸周边其他分区的边界 (优先保证卡片对齐排布)
+                foreach (Window window in Application.Current.Windows)
+                {
+                    if (window is FenceWindow other && other != this && other.Visibility == Visibility.Visible)
+                    {
+                        double otherLeft = other.Left;
+                        double otherRight = otherLeft + other.ActualWidth;
+                        double otherTop = other.Top;
+                        double otherBottom = otherTop + other.ActualHeight;
+
+                        // 水平拉伸边缘对齐 (Right 与 otherRight 对齐，或者 Right 与 otherLeft 对齐)
+                        if (Math.Abs(targetRight - otherRight) < NeighborSnapThreshold)
+                        {
+                            snapWidth = otherRight - this.Left;
+                            xSnapped = true;
+                        }
+                        else if (Math.Abs(targetRight - otherLeft) < NeighborSnapThreshold)
+                        {
+                            snapWidth = otherLeft - this.Left;
+                            xSnapped = true;
+                        }
+
+                        // 垂直拉伸边缘对齐 (Bottom 与 otherBottom 对齐，或者 Bottom 与 otherTop 对齐)
+                        if (Math.Abs(targetBottom - otherBottom) < NeighborSnapThreshold)
+                        {
+                            snapHeight = otherBottom - this.Top;
+                            ySnapped = true;
+                        }
+                        else if (Math.Abs(targetBottom - otherTop) < NeighborSnapThreshold)
+                        {
+                            snapHeight = otherTop - this.Top;
+                            ySnapped = true;
+                        }
+                    }
+                }
+
+                // 2. 如果对应方向没有发生周边吸附，则回退执行内部网格磁吸计算 (包裹图标)
+                if (!xSnapped)
+                {
+                    int cols = (int)Math.Round((currentWidth - 20) / 70.0);
+                    cols = Math.Max(2, cols); // 限制宽度最窄为 2 列
+                    snapWidth = cols * 70 + 20;
+                }
+
+                if (!ySnapped)
+                {
+                    int rows = (int)Math.Round((currentHeight - 52) / 75.0);
+                    rows = Math.Max(1, rows); // 限制高度最矮为 1 行
+                    snapHeight = rows * 75 + 52;
+                }
+
+                // 3. 磁吸重置尺寸并保存配置
+                this.Width = snapWidth;
+                this.Height = snapHeight;
 
                 if (_config != null)
                 {
-                    _config.Width = targetWidth;
-                    _config.Height = targetHeight;
+                    _config.Width = snapWidth;
+                    _config.Height = snapHeight;
                     TriggerConfigChanged();
                 }
             }
