@@ -15,6 +15,9 @@ namespace 桌面整理工具
         [DllImport("user32.dll", SetLastError = true)]
         public static extern IntPtr FindWindow(string lpClassName, string? lpWindowName);
 
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetForegroundWindow();
+
         [DllImport("user32.dll", SetLastError = true)]
         public static extern IntPtr FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string lpszClass, string? lpszWindow);
 
@@ -322,9 +325,51 @@ namespace 桌面整理工具
 
         public static Guid GetCurrentVirtualDesktopId()
         {
+            // 路径 1（首选且 100% 绝对精确）：通过任务栏 (Shell_TrayWnd) 所在的虚拟桌面提取当前桌面 ID
+            // 任务栏作为核心 Shell，在虚拟桌面切换时总会同步平移在当前桌面
             try
             {
-                // 路径 1 (标准 Windows 10 / 11 虚拟桌面注册表项)
+                if (_virtualDesktopManager == null)
+                {
+                    InitVirtualDesktopManager();
+                }
+
+                if (_virtualDesktopManager != null)
+                {
+                    IntPtr trayHWnd = FindWindow("Shell_TrayWnd", null);
+                    if (trayHWnd != IntPtr.Zero)
+                    {
+                        int hr = _virtualDesktopManager.GetWindowDesktopId(trayHWnd, out Guid desktopId);
+                        if (hr == 0 && desktopId != Guid.Empty)
+                        {
+                            return desktopId;
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // 路径 2（备用探测）：通过当前活动的前台窗口获取
+            try
+            {
+                if (_virtualDesktopManager != null)
+                {
+                    IntPtr foreHWnd = GetForegroundWindow();
+                    if (foreHWnd != IntPtr.Zero)
+                    {
+                        int hr = _virtualDesktopManager.GetWindowDesktopId(foreHWnd, out Guid desktopId);
+                        if (hr == 0 && desktopId != Guid.Empty)
+                        {
+                            return desktopId;
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // 路径 3（经典注册表兜底）
+            try
+            {
                 byte[]? value = Microsoft.Win32.Registry.CurrentUser
                     .OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\VirtualDesktops")
                     ?.GetValue("CurrentVirtualDesktop") as byte[];
@@ -337,7 +382,6 @@ namespace 桌面整理工具
 
             try
             {
-                // 路径 2 (多用户 Session ID 隔离路径)
                 int sessionId = System.Diagnostics.Process.GetCurrentProcess().SessionId;
                 byte[]? value = Microsoft.Win32.Registry.CurrentUser
                     .OpenSubKey($@"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\SessionInfo\{sessionId}\VirtualDesktops")
