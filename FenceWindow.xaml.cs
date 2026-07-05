@@ -103,6 +103,10 @@ namespace 桌面整理工具
             // 2. 将顶级无边框悬浮窗钉在桌面上
             IntPtr mainHWnd = new WindowInteropHelper(Application.Current.MainWindow).EnsureHandle();
             Win32Helper.PinToDesktopBackground(this, mainHWnd);
+
+            // 2.5. 挂载 Win32 消息钩子，以在用户拉伸完窗口释放鼠标瞬间触发磁吸自适应对齐
+            var source = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
+            source?.AddHook(WndProc);
         }
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
@@ -245,6 +249,51 @@ namespace 桌面整理工具
                     TriggerConfigChanged();
                 }
             }
+        }
+
+        private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            const int WM_EXITSIZEMOVE = 0x0232;
+            if (msg == WM_EXITSIZEMOVE)
+            {
+                if (_isEditMode && this.SizeToContent == SizeToContent.Manual)
+                {
+                    SnapToGrid();
+                }
+            }
+            return IntPtr.Zero;
+        }
+
+        private void SnapToGrid()
+        {
+            try
+            {
+                double currentWidth = this.ActualWidth;
+                double currentHeight = this.ActualHeight;
+
+                // 宽度磁吸：每列 70 像素，两端 Padding+边框微调共 20 像素
+                int cols = (int)Math.Round((currentWidth - 20) / 70.0);
+                cols = Math.Max(2, cols); // 限制宽度最窄为 2 列
+
+                // 高度磁吸：行高 75 像素，标题栏(32)+Padding(16)+边框与微调(4)共 52 像素
+                int rows = (int)Math.Round((currentHeight - 52) / 75.0);
+                rows = Math.Max(1, rows); // 限制高度最矮为 1 行
+
+                double targetWidth = cols * 70 + 20;
+                double targetHeight = rows * 75 + 52;
+
+                // 磁吸重置，消除任何残缺空白
+                this.Width = targetWidth;
+                this.Height = targetHeight;
+
+                if (_config != null)
+                {
+                    _config.Width = targetWidth;
+                    _config.Height = targetHeight;
+                    TriggerConfigChanged();
+                }
+            }
+            catch { }
         }
 
         private void LoadFiles()

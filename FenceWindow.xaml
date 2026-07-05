@@ -233,7 +233,6 @@
                      BorderThickness="0"
                      MinWidth="180"
                      MinHeight="90"
-                     MaxWidth="330"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                      ScrollViewer.VerticalScrollBarVisibility="Disabled"
                      ItemContainerStyle="{StaticResource FileItemStyle}"
