@@ -24,7 +24,6 @@ namespace 桌面整理工具
         // 全局磨砂效果控制变量
         private bool _enableBlur = true;
         private bool _isEditMode = false;
-        private Guid _lastDesktopId = Guid.Empty;
 
         public MainWindow()
         {
